@@ -1,0 +1,44 @@
+rules:
+  - id: sqli-template-string-query
+    patterns:
+      - pattern: |
+          $DB.query(`...${$INPUT}...`)
+    message: >
+      SQL-инъекция: запрос собирается через шаблонную строку с интерполяцией.
+      Используйте параметризованные запросы.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: sqli
+      owasp: A03:2021
+      cwe: CWE-89
+
+  - id: idor-findone-no-owner-check
+    patterns:
+      - pattern: |
+          $MODEL.findOne({ where: { id: $REQ.params.id } })
+      - pattern-not: |
+          $MODEL.findOne({ where: { id: $REQ.params.id, UserId: $REQ.user.id } })
+    message: >
+      Возможен IDOR: объект загружается по req.params.id без проверки
+      владельца. Убедитесь, что текущий пользователь имеет право на объект.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: broken-access-control
+      owasp: A01:2021
+      cwe: CWE-639
+
+  - id: hardcoded-secret
+    patterns:
+      - pattern-regex: |
+          (password|secret|api_key|apikey|token)\s*[:=]\s*['"][^'"]{8,}['"]
+    message: >
+      Возможен hardcoded secret в коде. Используйте переменные окружения
+      или хранилище секретов.
+    severity: WARNING
+    languages: [javascript, typescript, python]
+    metadata:
+      category: crypto
+      owasp: A02:2021
+      cwe: CWE-798
