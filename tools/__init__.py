@@ -8,4 +8,4 @@ ALL_TOOLS = [
     run_semgrep
 ]
 
-__all__ = ["ALL_TOOLS", "CHECK_IDOR", "RUN_SEMGREP"]
+__all__ = ["ALL_TOOLS", "check_idor", "run_semgrep"]

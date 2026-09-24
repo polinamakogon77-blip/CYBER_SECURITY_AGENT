@@ -7,7 +7,7 @@ from langchain.tools import tool
 
 
 @tool
-def run_sempgrep(source_path: str, rules_path: str):
+def run_semgrep(source_path: str, rules_path: str):
     """
     запускает Semgrep на исходниках
     ищет паттерны уязвимостей
