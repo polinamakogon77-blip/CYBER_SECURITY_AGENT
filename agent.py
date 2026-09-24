@@ -1,12 +1,12 @@
 import os
 from langchain.agents import create_agent
-from langchain.tools import tool
-
 from langchain_deepseek import ChatDeepSeek
 from dotenv import load_dotenv
 
 from tools import ALL_TOOLS
+from pathlib import Path
 
+SYSTEM_PROMPT = Path("prompts/system_prompt.md").read_text(encoding="utf-8")
 
 load_dotenv()
 NSU_TOKEN = os.getenv("NSU_TOKEN")
@@ -20,16 +20,16 @@ llm = ChatDeepSeek(
     temperature=0
 )
 
-
 agent = create_agent(
     model=llm,
-    tools=ALL_TOOLS
+    tools=ALL_TOOLS,
+    system_prompt=SYSTEM_PROMPT
 )
 
 if __name__ == "__main__":
     task = (
-        "проверить приложение http://localhost:3000 на уязвимости"
-        "проверить IDOR на точке входа  /rest/basket с id=\'1\' и токеном \'test-token-123\'"
+        "проверить приложение http://localhost:3000 на уязвимости "
+        "проверить IDOR на точке входа /rest/basket с id=\'1\' и токеном \'test-token-123\'"
     )
     result = agent.invoke({
         "messages": [{"role": "user", "content": task}]
