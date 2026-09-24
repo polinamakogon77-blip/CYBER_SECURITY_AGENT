@@ -1,33 +1,38 @@
 import os
 from langchain.agents import create_agent
 from langchain.tools import tool
-from langchain_openai import ChatOpenAI
+
+from langchain_deepseek import ChatDeepSeek
 from dotenv import load_dotenv
+
+from tools import ALL_TOOLS
+
 
 load_dotenv()
 NSU_TOKEN = os.getenv("NSU_TOKEN")
 if not NSU_TOKEN:
     raise RuntimeError("Создайте файл .env в вашей директории и укажите: NSU_TOKEN='токен Беспалова'")
 
-llm = ChatOpenAI(
-    model="deepseek-ai/DeepSeek-V4-Flash",
+llm = ChatDeepSeek(
+    model="deepseek-ai/DeepSeek-V4-Flash-0731",
     api_key=NSU_TOKEN,
-    base_url="https://deepcode.ci.nsu.ru/api/v1",
-    temperature=0,
+    base_url="https://deepcode.ci.nsu.ru/api",
+    temperature=0
 )
 
-@tool
-def get_weather(location: str) -> str:
-    """Get current weather for a location."""
-    return f"Weather in {location}: Sunny, 12°C"
 
 agent = create_agent(
     model=llm,
-    tools=[get_weather],
+    tools=ALL_TOOLS
 )
 
-result = agent.invoke({
-    "messages": [{"role": "user", "content": "What's the weather in Novosibirsk?"}]
-})
+if __name__ == "__main__":
+    task = (
+        "проверить приложение http://localhost:3000 на уязвимости"
+        "проверить IDOR на точке входа  /rest/basket с id=\'1\' и токеном \'test-token-123\'"
+    )
+    result = agent.invoke({
+        "messages": [{"role": "user", "content": task}]
+    })
 
 print(result["messages"][-1].content)
