@@ -10,6 +10,7 @@ from langgraph.graph.message import add_messages
 from tools import ALL_TOOLS
 
 SYSTEM_PROMPT = Path("prompts/system_prompt.md").read_text(encoding="utf-8")
+CRITIC_PROMPT = Path("prompts/critic_prompt.md").read_text(encoding="utf-8")
 
 load_dotenv()
 NSU_TOKEN = os.getenv("NSU_TOKEN")
@@ -28,6 +29,7 @@ NAME_TOOLS = {t.name: t for t in ALL_TOOLS}
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
+    revision_count: int
 
 def agent_node(state: AgentState) -> dict:
     messages = state["messages"]
@@ -57,7 +59,42 @@ def tools_node(state: AgentState) -> dict:
 
     return {"messages": tool_messages}
 
-def condition(state: AgentState) -> str:
+def critic_node(state: AgentState) -> dict:
+    """Оценивает финальный отчёт агента."""
+    messages = state["messages"]
+    last_ag_message = messages[-1].content
+    task = next(
+        (m.content for m in messages if isinstance(m, HumanMessage)),
+        ""
+    )
+    request = [
+        SystemMessage(content=CRITIC_PROMPT),
+        HumanMessage(content=f"Задача:\n{task}\n\nОтчёт:\n{last_ag_message}")
+    ]
+    response = llm.invoke(request).content
+    y = "SUCCESS" in response.upper()
+    if not y:
+        return {
+            "messages": [
+                HumanMessage(content=(
+                    f"Критик нашёл проблемы в твоём отчёте:\n\n{response}\n\n"
+                    "Перепиши отчёт, исправив замечания."
+                ))
+            ],
+            "revision_count": state.get("revision_count", 0) + 1,
+        }
+    return {"revision_count": state.get("revision_count", 0)}
+
+def should_revise(state: AgentState) -> str:
+    """После критика: либо переписать результат, либо вывести ответ llm."""
+    if state.get("revision_count", 0) >= 2:
+        return "end"  
+    last = state["messages"][-1]
+    if isinstance(last, HumanMessage) and "Критик нашёл проблемы" in last.content:
+        return "revise"
+    return "end" 
+
+def should_condition(state: AgentState) -> str:
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
         return "tools"
@@ -66,16 +103,25 @@ def condition(state: AgentState) -> str:
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tools_node)
+workflow.add_node("critic", critic_node) 
 workflow.add_edge(START, "agent")
 workflow.add_conditional_edges(
     "agent",
-    condition,
+    should_condition,
     {
         "tools": "tools",
-        "end": END,
+        "end": "critic",
     },
 )
 workflow.add_edge("tools", "agent")
+workflow.add_conditional_edges(
+    "critic",
+    should_condition,
+    {
+        "revise": "agent",
+        "end": END,
+    },
+)
 agent = workflow.compile()
 agent.get_graph().print_ascii()
 
