@@ -116,12 +116,13 @@ workflow.add_conditional_edges(
 workflow.add_edge("tools", "agent")
 workflow.add_conditional_edges(
     "critic",
-    should_condition,
+    should_revise,
     {
         "revise": "agent",
         "end": END,
     },
 )
+workflow.add_edge("agent", END)
 agent = workflow.compile()
 agent.get_graph().print_ascii()
 
