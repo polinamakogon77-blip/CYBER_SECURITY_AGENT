@@ -30,13 +30,17 @@ NAME_TOOLS = {t.name: t for t in ALL_TOOLS}
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     revision_count: int
+    final_res: str
 
 def agent_node(state: AgentState) -> dict:
     messages = state["messages"]
     if not messages or not isinstance(messages[0], SystemMessage):
         messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
     response = llm_tools.invoke(messages)
-    return {"messages": [response]}
+    newres = {"messages": [response]}
+    if not getattr(response, "tool_calls", None):
+        newres["final_res"] = response.content
+    return newres
 
 def tools_node(state: AgentState) -> dict:
     last_message = state["messages"][-1]
@@ -122,7 +126,7 @@ workflow.add_conditional_edges(
         "end": END,
     },
 )
-workflow.add_edge("agent", END)
+
 agent = workflow.compile()
 agent.get_graph().print_ascii()
 
@@ -136,4 +140,4 @@ if __name__ == "__main__":
         "messages": [HumanMessage(content=task)]
     })
 
-    print(result["messages"][-1].content)
+    print(result.get("final_res", "Агент не сформировал отчёт."))
