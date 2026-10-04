@@ -131,7 +131,7 @@ agent = workflow.compile()
 agent.get_graph().print_ascii()
 
 if __name__ == "__main__":
-    SOURCE_PATH = os.getenv("SOURCE_PATH", "../juice-shop")
+    SOURCE_PATH = os.getenv("SOURCE_PATH", "juice-shop")
     TARGET_URL = os.getenv("TARGET_URL", "http://localhost:3000")
     RULES_PATH = os.getenv("RULES_PATH", "rules/rules_semgrep.yaml")
     task = (
@@ -149,6 +149,7 @@ if __name__ == "__main__":
 
     # ======= сохранение отчета в файл =======
     reports_dir = Path("reports")
+    reports_dir.mkdir(parents=True, exist_ok=True) 
     report_path = reports_dir / "report.md"
     with open(report_path, "w", encoding="utf-8") as file:
         file.write(report)
