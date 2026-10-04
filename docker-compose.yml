@@ -39,7 +39,7 @@ services:
     environment:
       - TARGET_URL=http://juice-shop:3000
       - SOURCE_PATH=/app/juice-shop
-      - RULES_PATH=/app/rules/rules_sempgrep.yaml
+      - RULES_PATH=/app/rules/rules_semgrep.yaml
       - NSU_TOKEN=${NSU_TOKEN} # из .env
     volumes:
       - ./reports:/app/reports # папка отчетов
