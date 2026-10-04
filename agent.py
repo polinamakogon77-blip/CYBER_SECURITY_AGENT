@@ -131,13 +131,24 @@ agent = workflow.compile()
 agent.get_graph().print_ascii()
 
 if __name__ == "__main__":
+    SOURCE_PATH = os.getenv("SOURCE_PATH", "../juice-shop")
+    TARGET_URL = os.getenv("TARGET_URL", "http://localhost:3000")
+    RULES_PATH = os.getenv("RULES_PATH", "rules/rules_semgrep.yaml")
     task = (
-        "проверить приложение http://localhost:3000 на уязвимости "
-        "проверить IDOR на точке входа /rest/basket с id='1' и токеном 'test-token-123'"
+        f"проверить приложение {TARGET_URL} на уязвимости "
+        f"проверить IDOR на точке входа /rest/basket с id='1' и токеном 'test-token-123'"
+        f"запусти Semgrep на {SOURCE_PATH} с правилами {RULES_PATH}"
     )
 
     result = agent.invoke({
         "messages": [HumanMessage(content=task)]
     })
 
-    print(result.get("final_res", "Агент не сформировал отчёт."))
+    report = result.get("final_res", "Агент не сформировал отчёт.")
+    print(report)
+
+    # ======= сохранение отчета в файл =======
+    reports_dir = Path("reports")
+    report_path = reports_dir / "report.md"
+    with open(report_path, "w", encoding="utf-8") as file:
+        file.write(report)
