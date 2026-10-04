@@ -1,0 +1,48 @@
+services:
+  # ========= сервис, который скачивает исходники =========
+  juice-shop-source:
+    image: alpine:latest
+    container_name: juice-shop-source
+    volumes:
+      - ./juice-shop:/repo
+    working_dir: /repo
+    command: >
+      sh -c "
+        if [ ! -f package.json ]; then
+          git clone --depth 1 https://github.com/juice-shop/juice-shop.git . ;
+        else
+          echo 'juice-shop уже установлен';
+        fi
+        "
+  juice-shop:
+    image: bkimminich/juice-shop:latest # готовый образ
+    container_name: juice-shop
+    ports: 
+      - "3000:3000"
+    restart: unless-stopped
+    # ========= проверка, что сервис отвечает =========
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000/rest/admin/application-version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+  agent:
+    build: . # сборка из Dockerfile
+    container_name: cyber-security-agent
+    depends_on: 
+      juice-shop:
+        condition: service_healthy
+      juice-shop-source:
+        condition: service_completed_successfully
+    # ========= переменные окружения =========
+    environment:
+      - TARGET_URL=http://juice-shop:3000
+      - SOURCE_PATH=/app/juice-shop
+      - RULES_PATH=/app/rules/rules_sempgrep.yaml
+      - NSU_TOKEN=${NSU_TOKEN} # из .env
+    volumes:
+      - ./reports:/app/reports # папка отчетов
+      - ./juice-shop:/app/juice-shop:ro
+    working_dir: /app
+    command: ["python", "-u", "agent.py"]
