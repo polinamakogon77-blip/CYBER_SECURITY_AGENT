@@ -6,6 +6,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
+from schemas.finding import Finding
 
 from tools import ALL_TOOLS
 
