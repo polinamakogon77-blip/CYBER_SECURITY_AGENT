@@ -17,6 +17,9 @@ NSU_TOKEN = os.getenv("NSU_TOKEN")
 if not NSU_TOKEN:
     raise RuntimeError("Создайте файл .env в вашей директории и укажите: NSU_TOKEN='токен Беспалова'")
 
+MAX_TOOL_CALLS = 8          
+MAX_REVISIONS = 2
+
 llm = ChatDeepSeek(
     model="deepseek-ai/DeepSeek-V4-Flash-0731",
     api_key=NSU_TOKEN,
@@ -31,6 +34,7 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     revision_count: int
     final_res: str
+    tools_call_count: int
 
 def agent_node(state: AgentState) -> dict:
     messages = state["messages"]
@@ -61,7 +65,8 @@ def tools_node(state: AgentState) -> dict:
             ToolMessage(content=result, tool_call_id=tool_id)
         )
 
-    return {"messages": tool_messages}
+    return {"messages": tool_messages,
+            "tools_call_count": state.get("tools_call_count", 0) + 1}
 
 def critic_node(state: AgentState) -> dict:
     """Оценивает финальный отчёт агента."""
@@ -101,6 +106,8 @@ def should_revise(state: AgentState) -> str:
 def should_condition(state: AgentState) -> str:
     last_message = state["messages"][-1]
     if getattr(last_message, "tool_calls", None):
+        if state.get("tools_call_count", 0) >= MAX_TOOL_CALLS:
+            return "end"
         return "tools"
     return "end"
 
@@ -146,8 +153,6 @@ if __name__ == "__main__":
 
     report = result.get("final_res", "Агент не сформировал отчёт.")
     print(report)
-
-    # ======= сохранение отчета в файл =======
     reports_dir = Path("reports")
     reports_dir.mkdir(parents=True, exist_ok=True) 
     report_path = reports_dir / "report.md"
