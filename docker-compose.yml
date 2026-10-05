@@ -41,7 +41,8 @@ services:
       - TARGET_URL=http://juice-shop:3000
       - SOURCE_PATH=/app/juice-shop
       - RULES_PATH=/app/rules/rules_semgrep.yaml
-      - NSU_TOKEN=${NSU_TOKEN} # из .env
+    env_file:
+      - .env #болле универсально: естли есть langsmith
     volumes:
       - ./reports:/app/reports # папка отчетов
       - ./juice-shop:/app/juice-shop:ro

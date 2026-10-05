@@ -52,7 +52,14 @@ cd CYBER_SECURITY_AGENT
 ```bash
 docker run -d -p 3000:3000 --name juice-shop bkimminich/juice-shop
 ```
-### 5. Создайть файл .env в корне проекта, добавить NSU_TOKEN=''
+### 5. Создать файл .env в корне проекта, добавить NSU_TOKEN=''. 
+Если хотите подключить LangSmith, добавьте: 
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=''
+LANGSMITH_PROJECT="cyber_security_agent"
+```
 ### 6. Запуск
 из корня проекта
 ```bash
