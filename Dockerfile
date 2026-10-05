@@ -20,6 +20,7 @@ COPY agent.py .
 COPY tools/ ./tools/
 COPY rules/ ./rules/
 COPY prompts/ ./prompts/
+COPY schemas/ ./schemas/
 
 # ======== папка с отчетами ========
 RUN mkdir -p /app/reports
