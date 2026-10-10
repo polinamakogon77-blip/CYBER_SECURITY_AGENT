@@ -24,8 +24,6 @@ def run_semgrep(source_path: str, rules_path: str):
     # ======= проверка путей ======= 
     if not os.path.exists(source_path):
         return f"не найден путь: {source_path}"
-    if not os.path.exists(rules_path):
-        return f"не найден файл: {rules_path}"
 
      # ======= запуск Semgrep ======= 
     # команда для запуска Semgrep
