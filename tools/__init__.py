@@ -15,7 +15,7 @@ ALL_TOOLS = [
     read_file_around_line,
     run_nuclei,
     run_zap_scan,
-    list_files.py
+    list_files
 ]
 
 __all__ = ["ALL_TOOLS", "check_idor", "run_semgrep", "test_sqli_login", "read_file", "read_file_around_line", "run_nuclei", "run_zap_scan", "list_files"]
