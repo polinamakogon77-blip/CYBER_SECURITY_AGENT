@@ -46,5 +46,10 @@ services:
     volumes:
       - ./reports:/app/reports # папка отчетов
       - ./juice-shop:/app/juice-shop:ro
+      - ./target:/app/target:ro  
     working_dir: /app
-    command: ["python", "-u", "agent.py"]
+    command: >
+      python -u agent.py
+      --url http://juice-shop:3000
+      --source /app/juice-shop
+      --rules /app/rules/rules_semgrep.yaml

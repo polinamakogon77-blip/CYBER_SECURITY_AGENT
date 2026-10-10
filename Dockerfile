@@ -29,4 +29,7 @@ RUN mkdir -p /app/reports
 ENV PYTHONUNBUFFERED=1
 
 # ======== запуск ========
-CMD ["python", "-u", "agent.py"]
+CMD ["python", "-u", "agent.py", \
+     "--url", "http://juice-shop:3000", \
+     "--source", "/app/juice-shop", \
+     "--rules", "/app/rules/rules_semgrep.yaml"]

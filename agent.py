@@ -1,4 +1,5 @@
 import os
+import argparse
 from pathlib import Path
 from typing import TypedDict, Annotated
 from dotenv import load_dotenv
@@ -7,6 +8,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from schemas.finding import Finding
+from langchain_openai import ChatOpenAI
 
 from tools import ALL_TOOLS
 
@@ -21,8 +23,8 @@ if not NSU_TOKEN:
 MAX_TOOL_CALLS = 8          
 MAX_REVISIONS = 2
 
-llm = ChatDeepSeek(
-    model="deepseek-ai/DeepSeek-V4-Flash-0731",
+llm = ChatOpenAI(
+    model="qwen3.8-flash-next",
     api_key=NSU_TOKEN,
     base_url="https://deepcode.ci.nsu.ru/api",
     temperature=0,
@@ -139,14 +141,37 @@ agent = workflow.compile()
 agent.get_graph().print_ascii()
 
 if __name__ == "__main__":
-    SOURCE_PATH = os.getenv("SOURCE_PATH", "juice-shop")
-    TARGET_URL = os.getenv("TARGET_URL", "http://localhost:3000")
-    RULES_PATH = os.getenv("RULES_PATH", "rules/rules_semgrep.yaml")
-    task = (
-        f"проверить приложение {TARGET_URL} на уязвимости "
-        f"проверить IDOR на точке входа /rest/basket с id='1' и токеном 'test-token-123'"
-        f"запусти Semgrep на {SOURCE_PATH} с правилами {RULES_PATH}"
-    )
+    parser = argparse.ArgumentParser(
+        description="Агент по кибербезопасности: проверка веб-приложений на уязвимости")
+    parser.add_argument("--url", default=None, help="URL приложения")
+    parser.add_argument("--source", default=None, help="Путь к исходникам")
+    parser.add_argument("--rules", default=None, help="Путь к файлу правил Semgrep")
+    parser.add_argument("--idor-endpoint", default="/rest/basket", help="Точка входа для IDOR")
+    parser.add_argument("--idor-id", default="1", help="ID объекта для IDOR")
+    parser.add_argument("--idor-token", default="test-token-123", help="Токен для IDOR")
+    parser.add_argument("--no-idor", action="store_true", help="Не проверять IDOR")
+    parser.add_argument("--no-semgrep", action="store_true", help="Не запускать Semgrep")
+    parser.add_argument("--task", default=None, help="Произвольная задача (перекрывает остальное)")
+    args = parser.parse_args()
+    if args.task:
+        task = args.task
+    else:
+        SOURCE_PATH = args.source or os.getenv("SOURCE_PATH", "juice-shop")
+        TARGET_URL = args.url or os.getenv("TARGET_URL", "http://localhost:3000") 
+        RULES_PATH = args.rules or os.getenv("RULES_PATH", "/app/rules/rules_semgrep.yaml")
+        if not TARGET_URL:
+            TARGET_URL = input("URL приложения: ").strip() or "http://localhost:3000"
+        if not SOURCE_PATH:
+            SOURCE_PATH = input("Путь к исходникам: ").strip() or "juice-shop"
+        parts = [f"проверить приложение {TARGET_URL} на уязвимости"]
+        if not args.no_idor:
+            parts.append(
+                f"проверить IDOR на точке входа {args.idor_endpoint} "
+                f"с id='{args.idor_id}' и токеном '{args.idor_token}'"
+            )
+        if not args.no_semgrep:
+            parts.append(f"запусти Semgrep на {SOURCE_PATH} с правилами {RULES_PATH}")
+        task = " ".join(parts)
 
     result = agent.invoke({
         "messages": [HumanMessage(content=task)]

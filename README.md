@@ -24,6 +24,20 @@ docker compose up juice-shop
 ```
 будет доступен на `http://localhost:3000`
 
+### Запуск агента со своей задачей без зависимостей
+```bash
+docker compose run --rm --no-deps agent \
+  python -u agent.py \
+  --task "Проверь /app/target на SSRF."
+```
+
+### Только статический анализ
+```bash
+docker compose run --rm --no-deps agent \
+  python -u agent.py \
+  --task "Проверь /app/target. С помощью list_files прочитай список файлов, запусти Semgrep с p/python."
+```
+
 ## __Запуск без Docker__
 ### 1. Клонировать репозиторий
 ```bash
@@ -64,4 +78,70 @@ LANGSMITH_PROJECT="cyber_security_agent"
 из корня проекта
 ```bash
 python3 agent.py
+```
+
+#### __Флаги агента__
+
+| Флаг | Описание |
+|---|---|
+| `--url` | URL приложения |
+| `--source` | Путь к исходникам |
+| `--idor-endpoint` | Точка входа для IDOR |
+| `--idor-id` | ID объекта для IDOR |
+| `--idor-token` | Токен для IDOR |
+| `--no-idor` | Не проверять IDOR |
+| `--no-semgrep` | Не запускать Semgrep |
+| `--task` | Произвольная задача (перекрывает остальное) |
+
+## Справка
+```bash
+python3 agent.py --help
+```
+
+## URL + исходники + IDOR + Semgrep
+```bash
+python3 agent.py \
+  --url http://localhost:3000 \
+  --source juice-shop
+```
+
+## Только статический анализ исходников
+```bash
+python3 agent.py \
+  --source juice-shop \
+  --no-idor
+```
+
+## IDOR без Semgrep
+```bash
+python3 agent.py \
+  --url http://localhost:3000 \
+  --no-semgrep
+```
+
+## Свой произвольный запрос
+```bash
+python3 agent.py \
+  --task "Проверь /app/target на уязвимости. Сначала используй list_files, потом Semgrep с p/python."
+```
+
+## Отключить отдельные проверки
+```bash
+# без IDOR
+python3 agent.py --url http://localhost:3000 --no-idor
+
+# без Semgrep
+python3 agent.py --url http://localhost:3000 --no-semgrep
+
+# без обоих
+python3 agent.py --url http://localhost:3000 --no-idor --no-semgrep
+```
+## Переопределить параметры IDOR
+```bash
+python3 agent.py \
+  --url http://localhost:3000 \
+  --no-semgrep \
+  --idor-endpoint /api/v1/orders \
+  --idor-id 42 \
+  --idor-token "xyz"
 ```
