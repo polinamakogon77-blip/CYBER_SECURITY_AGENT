@@ -241,6 +241,7 @@ if __name__ == "__main__":
         NOSQLI_SOURCE_PATH = args.nosqli_source or os.getenv("NOSQLI_SOURCE_PATH", "")
         ZAP_URL = args.zap_url or os.getenv("ZAP_URL", "")
         ZAP_MODE = args.zap_mode
+        DAN_LAB_URL = os.getenv("DAN_LAB_URL", "")
 
 
         parts = [f"Проведи анализ защищённости приложения {TARGET_URL}."]
@@ -300,6 +301,13 @@ if __name__ == "__main__":
             )
             if NOSQLI_SOURCE_PATH:
                 parts.append(f"Запусти Semgrep на {NOSQLI_SOURCE_PATH}.")
+
+            # ============ DAN / Prompt Injection ============
+        if DAN_LAB_URL:
+            parts.append(
+                f"Проведи анализ Prompt Injection / DAN на стенде {DAN_LAB_URL}. "
+                f"Используй инструмент test_dan."
+            )
 
         parts.append("Опиши найденные уязвимости с критичностью и рекомендациями.")
         
