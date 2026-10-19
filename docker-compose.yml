@@ -176,6 +176,7 @@ services:
       - SQLI_SOURCE_PATH=/app/sqli-lab
       - NOSQLI_LAB_URL=http://nosqli-lab-backend:5000
       - NOSQLI_SOURCE_PATH=/app/nosqli-lab
+      - DAN_LAB_URL=http://dan-llm:5001
     env_file:
       - .env #болле универсально: естли есть langsmith
     volumes:
