@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from langchain.tools import tool
 
 IGNORE = {".git", "__pycache__", ".venv", "venv", "node_modules"}
@@ -15,13 +16,12 @@ def list_files(path: str, max_depth: int = 3) -> str:
     if not os.path.isdir(path):
         return f"это не каталог: {path}"
 
-    base = path.rstrip("/").count("/")
     lines = []
     total = 0
 
     for root, dirs, files in os.walk(path):
         dirs[:] = [d for d in dirs if d not in IGNORE]
-        depth = root.count("/") - base
+        depth = len(Path(os.path.relpath(root, path)).parts)
         if depth > max_depth:
             dirs[:] = []
             continue

@@ -29,7 +29,7 @@ def validate_path(path: str):
     resolved = path_file.resolve()
 
     for file in FORBIDDEN_FILES:
-        if file in str(resolved):
+        if file in resolved.as_posix():
             return path_file, "чтение файла запрещено"
 
     if not path_file.exists():
@@ -75,6 +75,9 @@ def read_file(path: str, cnt_chars: int):
     except Exception as e:
         return f"ошибка: {e}"
 
+    truncated = len(data) > cnt_chars
+    data = data[:cnt_chars]
+
     # ========== метаданные файла ==========
     try:
         size_file = path_file.stat().st_size
@@ -90,7 +93,7 @@ def read_file(path: str, cnt_chars: int):
         f"размер: {size_file}\n"
         f"к-во строк: {cnt_lines}\n"
         f"к-во прочитанных символов: {len(data)}\n"
-        f"{f'файл обрезан на {cnt_chars} символах' if len(data) > cnt_chars else 'файл полностью прочитан'}\n"
+        f"{f'файл обрезан на {cnt_chars} символах' if truncated else 'файл полностью прочитан'}\n"
     )
 
     return result + data
@@ -117,7 +120,7 @@ def read_file_around_line(path: str, line: int, cnt_chars: int):
     # проверка но номер строки и к-во символов для чтения
     if line < 1: return f"номер строки должен быть >= 1"
     if cnt_chars < 5: cnt_chars = 5
-    if cnt_chars > 500: cnt_chars - 500
+    if cnt_chars > 500: cnt_chars = 500
 
     # ========== чтение файла  ==========
     try: 

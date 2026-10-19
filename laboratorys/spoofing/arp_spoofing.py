@@ -1,13 +1,14 @@
 
 """ARP-спуфинг для тренировочного контура"""
+import os
 import signal
 import sys
 import time
 from scapy.all import ARP, Ether, get_if_hwaddr, sendp, srp
 
 
-VICTIM_IP = "172.28.0.10" # хост, которого обманываем
-TARGET_IP = "172.28.0.20" # хост, которым притворяемся
+VICTIM_IP = os.environ.get("VICTIM_IP", "172.28.0.10") # хост, которого обманываем
+TARGET_IP = os.environ.get("TARGET_IP", "172.28.0.20") # хост, которым притворяемся
 INTERFACE = "eth0" # сетевой интерфейс, через который работаем
 INTERFACE_MAC = None # mac сетевого интерфейса
 DNS_IP = "172.28.0.53"

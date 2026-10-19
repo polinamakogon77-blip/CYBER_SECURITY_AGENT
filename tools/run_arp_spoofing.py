@@ -17,7 +17,9 @@ def run_arp_spoof(victim_ip: str = "172.28.0.10", target_ip: str = "172.28.0.20"
     # ========== запуск скрипта ========== 
     try:
         result = subprocess.run(
-            ["docker", "exec", attacker, "timeout", "10", "python3", "/app/arp_spoofing.py"],
+            ["docker", "exec", "-e", f"VICTIM_IP={victim_ip}",
+             "-e", f"TARGET_IP={target_ip}", attacker,
+             "timeout", "10", "python3", "/app/arp_spoofing.py"],
             capture_output=True,
             text=True,
             timeout=20)
@@ -27,11 +29,18 @@ def run_arp_spoof(victim_ip: str = "172.28.0.10", target_ip: str = "172.28.0.20"
     stdout = (result.stdout or "")[:1000]
     stderr = (result.stderr or "")[:500]
 
+    # GNU timeout returns 124 after the planned ten-second lab run.
+    if result.returncode not in (0, 124):
+        return (
+            f"возникла ошибка запуска (код {result.returncode})\n"
+            f"stdout\n{stdout}\nstderr\n{stderr}"
+        )
+
     return (
         f"был запущен ARP-spoofing\n"
         f"victim: {victim_ip}\n"
         f"target: {target_ip}\n"
-        f"attacker: {attacker}"
+        f"attacker: {attacker}\n"
         f"stdout\n{stdout}\n"
         f"stderr\n{stderr}"
     )

@@ -10,6 +10,7 @@ from threading import Thread
 from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 import requests
@@ -21,19 +22,37 @@ from tools import run_file_inclusion_agent as file_inclusion_agent_launcher
 from tools.file_inclusion_probe import scan_lab as scan_file_inclusion_lab
 
 from tools import (
+    ALL_TOOLS,
+    check_arp_table,
+    check_file_inclusion,
     check_idor,
     list_files,
     read_file,
     read_file_around_line,
+    run_arp_spoof,
     run_nuclei,
     run_semgrep,
     run_zap_scan,
+    test_nosqli_lab as nosqli_lab_tool,
     test_sqli_lab as sqli_lab_tool,
     test_sqli_login as sqli_login_tool,
 )
 
 zap_module = import_module("tools.run_zap_scan")
 sqli_lab_module = import_module("tools.test_sqli_lab")
+arp_table_module = import_module("tools.check_arp_table")
+
+
+def test_registered_tools_match_tools_with_behavioral_tests():
+    tested_tools = (
+        check_idor, run_semgrep, sqli_login_tool, read_file, read_file_around_line,
+        run_nuclei, run_zap_scan, list_files, sqli_lab_tool,
+        check_file_inclusion, nosqli_lab_tool, check_arp_table, run_arp_spoof,
+    )
+
+    assert sorted(item.name for item in ALL_TOOLS) == sorted(
+        item.name for item in tested_tools
+    )
 
 
 def test_read_file_returns_content_and_metadata(tmp_path):
@@ -58,11 +77,6 @@ def test_read_file_limits_output_and_reports_truncation(tmp_path):
     assert "END" not in result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="read_file includes the extra character used to detect truncation",
-)
 def test_read_file_does_not_return_more_than_the_effective_limit(tmp_path):
     source = tmp_path / "large.py"
     source.write_text("x" * 120 + "END", encoding="utf-8")
@@ -71,6 +85,7 @@ def test_read_file_does_not_return_more_than_the_effective_limit(tmp_path):
     content = result.split("\n", 5)[5]
 
     assert content == "x" * 100
+    assert "к-во прочитанных символов: 100\n" in result
 
 
 @pytest.mark.parametrize(
@@ -90,18 +105,16 @@ def test_read_file_rejects_disallowed_files(tmp_path, name, message):
 
 
 @pytest.mark.parametrize("directory", [".git", ".ssh", ".aws"])
-@pytest.mark.xfail(
-    os.name == "nt",
-    strict=True,
-    raises=AssertionError,
-    reason="forbidden directory checks do not recognize Windows separators",
-)
-def test_read_file_rejects_forbidden_directories(tmp_path, directory):
+@pytest.mark.parametrize("reader", [read_file, read_file_around_line], ids=lambda item: item.name)
+def test_read_file_rejects_forbidden_directories(tmp_path, directory, reader):
     source = tmp_path / directory / "example.py"
     source.parent.mkdir()
     source.write_text("test data", encoding="utf-8")
 
-    result = read_file.invoke({"path": str(source), "cnt_chars": 500})
+    arguments = {"path": str(source), "cnt_chars": 500}
+    if reader is read_file_around_line:
+        arguments["line"] = 1
+    result = reader.invoke(arguments)
 
     assert "чтение файла запрещено" in result
 
@@ -165,11 +178,6 @@ def test_read_file_around_line_reports_empty_file(tmp_path):
     assert result == "файл пуст"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="cnt_chars > 500 is not capped in the current tool",
-)
 def test_read_file_around_line_caps_large_context(tmp_path):
     source = tmp_path / "example.py"
     source.write_text(
@@ -777,13 +785,8 @@ def test_list_files_reports_empty_directory(tmp_path):
     assert result == f"в {tmp_path} нет файлов"
 
 
-@pytest.mark.xfail(
-    os.name == "nt",
-    strict=True,
-    raises=AssertionError,
-    reason="list_files counts only forward slashes when calculating directory depth",
-)
-def test_list_files_respects_max_depth(tmp_path):
+@pytest.mark.parametrize("max_depth", [0, 1, 2])
+def test_list_files_respects_max_depth(tmp_path, max_depth):
     (tmp_path / "root.py").write_text("root", encoding="utf-8")
     child = tmp_path / "child"
     child.mkdir()
@@ -792,13 +795,12 @@ def test_list_files_respects_max_depth(tmp_path):
     grandchild.mkdir()
     (grandchild / "excluded.py").write_text("excluded", encoding="utf-8")
 
-    result = list_files.invoke({"path": str(tmp_path), "max_depth": 1})
+    result = list_files.invoke({"path": str(tmp_path), "max_depth": max_depth})
 
-    assert "excluded.py" not in result
-    assert "grandchild/" not in result
-    assert result.startswith(f"Каталог {tmp_path} — 2 файлов:\n")
-    assert "root.py" in result
-    assert "included.py" in result
+    assert result.startswith(f"Каталог {tmp_path} — {max_depth + 1} файлов:\n")
+    for depth, filename in enumerate(("root.py", "included.py", "excluded.py")):
+        assert (filename in result) == (depth <= max_depth)
+    assert ("grandchild/" in result) == (max_depth == 2)
 
 
 def test_sqli_lab_get_uses_default_parameter_and_reports_neutral_response():
@@ -1109,7 +1111,7 @@ def test_file_inclusion_cli_saves_a_real_report_without_an_llm(file_inclusion_se
     assert all(check["status"] == "confirmed" for check in saved["checks"])
 
 
-def test_file_inclusion_optional_agent_tool_is_usable_without_modifying_shared_registry(file_inclusion_servers):
+def test_file_inclusion_registered_tool_returns_evidence_without_changing_registry(file_inclusion_servers):
     import tools
     original_names = [item.name for item in tools.ALL_TOOLS]
     from tools import check_file_inclusion
@@ -1122,16 +1124,23 @@ def test_file_inclusion_optional_agent_tool_is_usable_without_modifying_shared_r
     assert [item.name for item in tools.ALL_TOOLS] == original_names
 
 
-def test_file_inclusion_launcher_passes_a_scoped_task_to_the_existing_agent(monkeypatch):
-    monkeypatch.setattr(sys, "argv", [
+def test_file_inclusion_launcher_passes_a_scoped_task_to_the_existing_agent():
+    arguments = [
         "run_file_inclusion_agent.py", "--url", "http://lab.test",
         "--remote-url", "http://fixture.test/payload.py",
-    ])
-    monkeypatch.setattr(sys, "path", list(sys.path))
-    monkeypatch.chdir(FILE_INCLUSION_ROOT)
-    with patch.object(file_inclusion_agent_launcher.runpy, "run_path") as launch:
-        file_inclusion_agent_launcher.main()
-        forwarded_args = list(sys.argv)
+    ]
+    previous_directory = Path.cwd()
+    try:
+        os.chdir(FILE_INCLUSION_ROOT)
+        with (
+            patch.object(sys, "argv", arguments),
+            patch.object(sys, "path", list(sys.path)),
+            patch.object(file_inclusion_agent_launcher.runpy, "run_path") as launch,
+        ):
+            file_inclusion_agent_launcher.main()
+            forwarded_args = list(sys.argv)
+    finally:
+        os.chdir(previous_directory)
     launch.assert_called_once_with(str(FILE_INCLUSION_ROOT / "agent.py"), run_name="__main__")
     assert forwarded_args[:2] == [str(FILE_INCLUSION_ROOT / "agent.py"), "--task"]
     assert "http://lab.test" in forwarded_args[2]
@@ -1139,3 +1148,370 @@ def test_file_inclusion_launcher_passes_a_scoped_task_to_the_existing_agent(monk
     assert repr(str((FILE_INCLUSION_ROOT / "rules" / "rules_semgrep.yaml").resolve())) in forwarded_args[2]
     assert repr(str((FILE_INCLUSION_ROOT / "target" / "LFI_RFI_service.py").resolve())) in forwarded_args[2]
     assert "/api/lfi-safe" in forwarded_args[2] and "/api/rfi-safe" in forwarded_args[2]
+
+
+def test_file_inclusion_tool_passes_custom_endpoints(file_inclusion_servers):
+    target, remote = file_inclusion_servers
+
+    report = json.loads(check_file_inclusion.invoke({
+        "base_url": target, "remote_payload_url": remote,
+        "lfi_endpoint": "/api/lfi-safe", "rfi_endpoint": "/api/rfi-safe",
+    }))
+
+    assert [item["location"] for item in report["checks"]] == [
+        "/api/lfi-safe", "/api/rfi-safe",
+    ]
+    assert all(item["status"] == "requires_verification" for item in report["checks"])
+    assert all(
+        item["evidence"]["payload_response"]["status_code"] == 403
+        for item in report["checks"]
+    )
+
+
+@pytest.mark.parametrize("invalid_arguments", [
+    {"base_url": "file:///tmp/lab"},
+    {"remote_payload_url": "not-a-url"},
+    {"lfi_endpoint": "//other.test/lfi"},
+    {"rfi_endpoint": "https://other.test/rfi"},
+])
+def test_file_inclusion_tool_returns_validation_errors_without_http(invalid_arguments):
+    arguments = {
+        "base_url": "http://lab.test",
+        "remote_payload_url": "http://fixture.test/payload.py",
+        **invalid_arguments,
+    }
+    with patch.object(requests, "get") as get:
+        result = json.loads(check_file_inclusion.invoke(arguments))
+
+    assert set(result) == {"error"}
+    assert result["error"]
+    get.assert_not_called()
+
+
+@pytest.mark.parametrize("endpoint", [None, "/custom/login"])
+def test_nosqli_lab_posts_operator_payload(endpoint):
+    arguments = {"url": "http://lab.test"}
+    if endpoint is not None:
+        arguments["endpoint"] = endpoint
+    with patch.object(
+        requests, "post",
+        return_value=SimpleNamespace(status_code=401, text="Invalid credentials"),
+    ) as post:
+        result = nosqli_lab_tool.invoke(arguments)
+
+    post.assert_called_once_with(
+        "http://lab.test" + (endpoint or "/api/login"),
+        json={"username": {"$ne": None}, "password": {"$ne": None}},
+        timeout=10,
+    )
+    assert result == "status=401 body=Invalid credentials verdict=ОК"
+
+
+@pytest.mark.parametrize("status,body,verdict", [
+    (200, '{"username":"admin","role":"admin"}', "найдена уязвимость NoSQLi"),
+    (200, '{"username":"admin"}', "ОК"),
+    (200, '{"role":"admin"}', "ОК"),
+    (200, "username role", "ОК"),
+    (200, "", "ОК"),
+    (401, '{"username":"admin","role":"admin"}', "ОК"),
+    (500, '{"username":"admin","role":"admin"}', "ОК"),
+])
+def test_nosqli_lab_requires_success_and_both_response_fields(status, body, verdict):
+    with patch.object(
+        requests, "post", return_value=SimpleNamespace(status_code=status, text=body),
+    ):
+        result = nosqli_lab_tool.invoke({"url": "http://lab.test"})
+
+    assert result == f"status={status} body={body} verdict={verdict}"
+
+
+def test_nosqli_lab_truncates_body_but_checks_full_response():
+    body = "x" * 300 + '{"username":"admin","role":"admin"}'
+    with patch.object(
+        requests, "post", return_value=SimpleNamespace(status_code=200, text=body),
+    ):
+        result = nosqli_lab_tool.invoke({"url": "http://lab.test"})
+
+    assert result == f"status=200 body={'x' * 300} verdict=найдена уязвимость NoSQLi"
+
+
+@pytest.mark.parametrize("error", [
+    requests.Timeout("request timed out"),
+    requests.ConnectionError("connection refused"),
+])
+def test_nosqli_lab_reports_request_errors(error):
+    with patch.object(requests, "post", side_effect=error):
+        result = nosqli_lab_tool.invoke({"url": "http://lab.test"})
+
+    assert result == f"ошибка запроса {error}"
+
+
+@pytest.fixture
+def arp_container():
+    # Each test creates snapshots through the public tool, then removes its state.
+    name = "pytest-arp-" + uuid4().hex
+    try:
+        yield name
+    finally:
+        arp_table_module.SNAPSHOTS.pop(name, None)
+
+
+def test_arp_table_parses_neighbor_states_and_saves_baseline(arp_container):
+    states = ["REACHABLE", "STALE", "DELAY", "PROBE", "FAILED", "INCOMPLETE", "PERMANENT"]
+    expected = [
+        {"ip": f"192.0.2.{index}", "mac": f"02:00:00:00:00:{index:02x}", "state": state}
+        for index, state in enumerate(states, start=1)
+    ]
+    expected.append({"ip": "2001:db8::1", "mac": "02:00:00:00:00:08", "state": "UNKNOWN"})
+    output = "\n".join(
+        f"{entry['ip']} dev eth0 lladdr {entry['mac']} {entry['state']}"
+        for entry in expected
+    )
+    with patch.object(
+        subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output),
+    ) as run:
+        result = json.loads(check_arp_table.invoke({"container_name": arp_container}))
+
+    run.assert_called_once_with(
+        ["docker", "exec", arp_container, "ip", "neigh", "show"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result["container"] == arp_container
+    assert result["total_entries"] == len(expected)
+    assert result["entries"] == expected
+    assert result["anomalies"] == []
+    assert result["verdict"] == "закрелено начальное состояние таблицы"
+
+
+@pytest.mark.parametrize("output", [
+    "", "  \n ",
+    "short line\n192.0.2.1 dev eth0 FAILED\n192.0.2.2 dev eth0 lladdr",
+])
+def test_arp_table_ignores_entries_without_mac(arp_container, output):
+    with patch.object(
+        subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=output),
+    ):
+        result = json.loads(check_arp_table.invoke({"container_name": arp_container}))
+
+    assert result["total_entries"] == 0
+    assert result["entries"] == result["anomalies"] == []
+
+
+def test_arp_table_detects_mac_change_and_updates_previous_snapshot(arp_container):
+    original = "192.0.2.1 dev eth0 lladdr 02:00:00:00:00:01 REACHABLE"
+    changed = "192.0.2.1 dev eth0 lladdr 02:00:00:00:00:02 STALE"
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=0, stdout=output)
+        for output in (original, changed, changed)
+    ]):
+        check_arp_table.invoke({"container_name": arp_container})
+        result = json.loads(check_arp_table.invoke({
+            "container_name": arp_container, "compare_with_previous": True,
+        }))
+        repeated = json.loads(check_arp_table.invoke({
+            "container_name": arp_container, "compare_with_previous": True,
+        }))
+
+    assert result["verdict"] == "найдены аномалии"
+    assert result["anomalies"] == [{
+        "ip": "192.0.2.1", "old_mac": "02:00:00:00:00:01",
+        "new_mac": "02:00:00:00:00:02", "severity": "HIGH",
+        "reason": "MAC изменился - возможен ARP-спуфинг",
+    }]
+    assert repeated["anomalies"] == []
+    assert repeated["verdict"] == "OK"
+
+
+def test_arp_table_does_not_compare_when_flag_is_false(arp_container):
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=0, stdout=f"192.0.2.1 dev eth0 lladdr {mac} REACHABLE")
+        for mac in ("02:00:00:00:00:01", "02:00:00:00:00:02")
+    ]):
+        check_arp_table.invoke({"container_name": arp_container})
+        result = json.loads(check_arp_table.invoke({"container_name": arp_container}))
+
+    assert result["anomalies"] == []
+    assert result["verdict"] == "закрелено начальное состояние таблицы"
+
+
+def test_arp_table_keeps_container_snapshots_separate(arp_container):
+    other = arp_container + "-other"
+    try:
+        with patch.object(subprocess, "run", side_effect=[
+            SimpleNamespace(returncode=0, stdout=f"192.0.2.1 dev eth0 lladdr {mac} REACHABLE")
+            for mac in ("02:00:00:00:00:01", "02:00:00:00:00:02", "02:00:00:00:00:01")
+        ]):
+            check_arp_table.invoke({"container_name": arp_container})
+            initial = json.loads(check_arp_table.invoke({
+                "container_name": other, "compare_with_previous": True,
+            }))
+            repeated = json.loads(check_arp_table.invoke({
+                "container_name": arp_container, "compare_with_previous": True,
+            }))
+    finally:
+        arp_table_module.SNAPSHOTS.pop(other, None)
+
+    assert initial["anomalies"] == repeated["anomalies"] == []
+    assert initial["verdict"] == repeated["verdict"] == "OK"
+
+
+def test_arp_table_reports_docker_failure_without_overwriting_snapshot(arp_container):
+    output = "192.0.2.1 dev eth0 lladdr 02:00:00:00:00:01 REACHABLE"
+    stderr = "container unavailable " + "x" * 120
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=0, stdout=output),
+        SimpleNamespace(returncode=1, stderr="  " + stderr + "  "),
+        SimpleNamespace(returncode=0, stdout=output),
+    ]):
+        check_arp_table.invoke({"container_name": arp_container})
+        failed = check_arp_table.invoke({"container_name": arp_container})
+        repeated = json.loads(check_arp_table.invoke({
+            "container_name": arp_container, "compare_with_previous": True,
+        }))
+
+    assert failed == f"в {arp_container} возникла ошибка: {stderr[:100]}"
+    assert repeated["anomalies"] == []
+    assert repeated["verdict"] == "OK"
+
+
+@pytest.mark.parametrize("error,message", [
+    (FileNotFoundError("docker"), "docker не установлен"),
+    (subprocess.TimeoutExpired("docker", 10), None),
+])
+def test_arp_table_reports_execution_errors(arp_container, error, message):
+    with patch.object(subprocess, "run", side_effect=error):
+        result = check_arp_table.invoke({"container_name": arp_container})
+
+    assert result == (message or f"возникла ошибка: {error}")
+
+
+@pytest.mark.parametrize("original", [
+    "", "192.0.2.1 dev eth0 lladdr 02:00:00:00:00:01 REACHABLE",
+])
+def test_arp_table_reports_new_neighbor_as_medium_anomaly(arp_container, original):
+    added = original + "\n192.0.2.2 dev eth0 lladdr 02:00:00:00:00:02 STALE"
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=0, stdout=output) for output in (original, added)
+    ]):
+        check_arp_table.invoke({"container_name": arp_container})
+        result = json.loads(check_arp_table.invoke({
+            "container_name": arp_container, "compare_with_previous": True,
+        }))
+
+    assert result["verdict"] == "найдены аномалии"
+    assert len(result["anomalies"]) == 1
+    anomaly = result["anomalies"][0]
+    assert anomaly["ip"] == "192.0.2.2"
+    assert anomaly["old_mac"] is None
+    assert anomaly["new_mac"] == "02:00:00:00:00:02"
+    assert anomaly["severity"] == "MEDIUM"
+
+
+@pytest.mark.parametrize("returncode", [0, 124])
+def test_arp_spoof_runs_default_lab_command_and_returns_output(returncode):
+    with patch.object(
+        subprocess, "run",
+        return_value=SimpleNamespace(returncode=returncode, stdout="lab output", stderr="lab warning"),
+    ) as run:
+        result = run_arp_spoof.invoke({})
+
+    run.assert_called_once_with(
+        ["docker", "exec", "-e", "VICTIM_IP=172.28.0.10", "-e", "TARGET_IP=172.28.0.20",
+         "spoof-attacker", "timeout", "10", "python3", "/app/arp_spoofing.py"],
+        capture_output=True, text=True, timeout=20,
+    )
+    assert "victim: 172.28.0.10\n" in result
+    assert "target: 172.28.0.20\n" in result
+    assert "attacker: spoof-attacker" in result
+    assert "stdout\nlab output\n" in result
+    assert result.endswith("stderr\nlab warning")
+
+
+def test_arp_spoof_uses_custom_attacker_container():
+    with patch.object(
+        subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+    ) as run:
+        result = run_arp_spoof.invoke({"attacker": "custom-lab-attacker"})
+
+    assert run.call_args.args[0][6] == "custom-lab-attacker"
+    assert "attacker: custom-lab-attacker" in result
+
+
+@pytest.mark.parametrize("stdout,stderr", [(None, None), ("x" * 1001, "e" * 501)])
+def test_arp_spoof_handles_empty_output_and_limits_report(stdout, stderr):
+    with patch.object(
+        subprocess, "run",
+        return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr),
+    ):
+        result = run_arp_spoof.invoke({})
+
+    output = result.split("stdout\n", 1)[1]
+    assert output == f"{(stdout or '')[:1000]}\nstderr\n{(stderr or '')[:500]}"
+
+
+@pytest.mark.parametrize("error", [
+    FileNotFoundError("docker"), subprocess.TimeoutExpired("docker", 20),
+])
+def test_arp_spoof_reports_launch_errors(error):
+    with patch.object(subprocess, "run", side_effect=error):
+        result = run_arp_spoof.invoke({})
+
+    assert result == f"возникла ошибка запуска: {error}"
+
+
+@pytest.mark.parametrize("returncode", [1, 125, 126, 127, 137])
+def test_arp_spoof_does_not_report_success_when_container_fails(returncode):
+    with patch.object(
+        subprocess, "run",
+        return_value=SimpleNamespace(returncode=returncode, stdout="", stderr="container unavailable"),
+    ):
+        result = run_arp_spoof.invoke({})
+
+    assert "container unavailable" in result
+    assert f"код {returncode}" in result
+    assert "был запущен ARP-spoofing" not in result
+
+
+def test_arp_spoof_forwards_custom_ips_to_process():
+    with patch.object(
+        subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+    ) as run:
+        run_arp_spoof.invoke({"victim_ip": "192.0.2.10", "target_ip": "192.0.2.20"})
+
+    command = run.call_args.args[0]
+    assert command[2:6] == ["-e", "VICTIM_IP=192.0.2.10", "-e", "TARGET_IP=192.0.2.20"]
+
+
+@pytest.mark.parametrize("custom_ips", [False, True])
+def test_arp_lab_script_reads_ip_configuration_without_sending_packets(tmp_path, custom_ips):
+    # A local Scapy substitute makes the real script exit before any packet send.
+    scapy = tmp_path / "scapy"
+    scapy.mkdir()
+    (scapy / "__init__.py").write_text("", encoding="utf-8")
+    (scapy / "all.py").write_text(
+        "class Packet:\n"
+        "    def __init__(self, *args, **kwargs): pass\n"
+        "    def __truediv__(self, other): return self\n"
+        "ARP = Ether = Packet\n"
+        "def get_if_hwaddr(*args): return '02:00:00:00:00:01'\n"
+        "def srp(*args, **kwargs): return [], []\n"
+        "def sendp(*args, **kwargs): raise AssertionError('Unexpected packet send')\n",
+        encoding="utf-8",
+    )
+    environment = dict(os.environ, PYTHONPATH=str(tmp_path))
+    for name in ("VICTIM_IP", "TARGET_IP"):
+        environment.pop(name, None)
+    if custom_ips:
+        environment.update(VICTIM_IP="192.0.2.10", TARGET_IP="192.0.2.20")
+
+    result = subprocess.run(
+        [sys.executable, "-B", str(FILE_INCLUSION_ROOT / "laboratorys" / "spoofing" / "arp_spoofing.py")],
+        capture_output=True, text=True, encoding="utf-8", timeout=10,
+        env=dict(environment, PYTHONIOENCODING="utf-8"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    victim = "192.0.2.10" if custom_ips else "172.28.0.10"
+    target = "192.0.2.20" if custom_ips else "172.28.0.20"
+    assert f"жертва: {victim} -> None" in result.stdout
+    assert f"цель: {target} -> None" in result.stdout
