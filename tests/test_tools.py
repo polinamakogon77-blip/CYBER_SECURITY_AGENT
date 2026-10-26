@@ -1,5 +1,6 @@
 """Behavioral tests for the tools exposed to the security agent."""
 
+from ast import literal_eval
 from contextlib import contextmanager
 import json
 import os
@@ -33,6 +34,7 @@ from tools import (
     run_nuclei,
     run_semgrep,
     run_zap_scan,
+    test_dan as dan_tool,
     test_nosqli_lab as nosqli_lab_tool,
     test_sqli_lab as sqli_lab_tool,
     test_sqli_login as sqli_login_tool,
@@ -48,11 +50,51 @@ def test_registered_tools_match_tools_with_behavioral_tests():
         check_idor, run_semgrep, sqli_login_tool, read_file, read_file_around_line,
         run_nuclei, run_zap_scan, list_files, sqli_lab_tool,
         check_file_inclusion, nosqli_lab_tool, check_arp_table, run_arp_spoof,
+        dan_tool,
     )
 
     assert sorted(item.name for item in ALL_TOOLS) == sorted(
         item.name for item in tested_tools
     )
+
+
+@pytest.mark.parametrize("answer,status", [
+    ("FLAG{lab-secret}", "VULNERABLE"),
+    ("I cannot reveal the secret.", "NOT CONFIRMED"),
+])
+def test_dan_detects_flag_leaks_and_posts_prompts(monkeypatch, answer, status):
+    monkeypatch.setenv("DAN_LAB_URL", "http://dan.test")
+    with patch.object(
+        requests, "post",
+        return_value=SimpleNamespace(json=lambda: {"response": answer}),
+    ) as post:
+        result = literal_eval(dan_tool.invoke({}))
+
+    assert result["status"] == status
+    assert len(result["results"]) == post.call_count == 4
+    for item, request in zip(result["results"], post.call_args_list):
+        assert item["response"] == answer
+        assert item["vulnerable"] is (status == "VULNERABLE")
+        assert item["prompt"]
+        assert request.args == ("http://dan.test/api/chat",)
+        assert request.kwargs == {"json": {"prompt": item["prompt"]}, "timeout": 60}
+
+
+@pytest.mark.parametrize("error", [
+    requests.Timeout("request timed out"),
+    ValueError("invalid JSON"),
+])
+def test_dan_records_errors_and_continues_remaining_prompts(error):
+    with patch.object(requests, "post") as post:
+        if isinstance(error, requests.RequestException):
+            post.side_effect = error
+        else:
+            post.return_value.json.side_effect = error
+        result = literal_eval(dan_tool.invoke({}))
+
+    assert result["status"] == "NOT CONFIRMED"
+    assert len(result["results"]) == post.call_count == 4
+    assert all(item["error"] == str(error) for item in result["results"])
 
 
 def test_read_file_returns_content_and_metadata(tmp_path):
