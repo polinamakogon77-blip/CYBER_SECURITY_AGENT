@@ -2,16 +2,15 @@ import os
 import sys
 import argparse
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, Annotated
 from dotenv import load_dotenv
-from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from schemas.finding import Finding
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 from tools import ALL_TOOLS
 
@@ -102,131 +101,125 @@ DEFENSIVE_ALLOWED_TOOLS = {
     "check_arp_table",
 }
 
+class FindingsResult(BaseModel):
+    findings: list[Finding] = Field(default_factory=list)
+
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     revision_count: int
     final_res: str
     tools_call_count: int
-    finding: dict
+    findings: list[dict]
     defend_mode: bool
 
 
 def agent_node(state: AgentState) -> dict:
     messages = list(state["messages"])
     if not messages or not isinstance(messages[0], SystemMessage):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
-    finding = state.get("finding")
-    if finding:
-        messages.append(
-            HumanMessage(
-                content=(
-                    "Вот структурированный результат анализа инструмента:\n"
-                    f"{finding}\n\n"
-                    "Используй его при формировании итогового отчёта. "
-                    "Не искажай доказательства и не придумывай новые факты."
-                )
-            )
-        )
-    response = llm_tools.invoke(messages)
-    newres = {"messages": [response]}
+        messages.insert(0, SystemMessage(content=SYSTEM_PROMPT))
+
+    findings = state.get("findings", [])
+    if findings:
+        messages.append(HumanMessage(content=(
+            "Накопленные структурированные находки:\n"
+            f"{findings}\nНе придумывай новые доказательства."
+        )))
+
+    used = state.get("tools_call_count", 0)
+    if used >= MAX_TOOL_CALLS:
+        messages.append(HumanMessage(content=(
+            "Лимит инструментов исчерпан. Не вызывай инструменты. "
+            "Сформируй окончательный отчёт по имеющимся данным."
+        )))
+        response = llm.invoke(messages)
+    else:
+        response = llm_tools.invoke(messages)
+
+    result = {"messages": [response]}
     if not getattr(response, "tool_calls", None):
-        newres["final_res"] = response.content
-    return newres
+        result["final_res"] = response.content
+    return result
 
 
 def tools_node(state: AgentState) -> dict:
-    last_message = state["messages"][-1]
-    tool_messages = []
+    last = state["messages"][-1]
+    used = state.get("tools_call_count", 0)
     defend = state.get("defend_mode", False)
-    for tool_call in last_message.tool_calls:
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-        tool_id = tool_call["id"]
-        if defend and tool_name not in DEFENSIVE_ALLOWED_TOOLS:
-            tool_messages.append(ToolMessage(
-                content=(
-                    f"[Guardrails: инструмент '{tool_name}' недоступен в режиме защиты. "
-                    f"Разрешены только: {sorted(DEFENSIVE_ALLOWED_TOOLS)}]"
-                ),
-                tool_call_id=tool_id,
-            ))
-            continue
-        tool_fn = NAME_TOOLS.get(tool_name)
-        if tool_fn is None:
-            result = f"Инструмент '{tool_name}' не найден."
+    tool_messages = []
+
+    for call in last.tool_calls:
+        name, args, call_id = call["name"], call["args"], call["id"]
+        if used >= MAX_TOOL_CALLS:
+            result = "Лимит инструментов исчерпан."
+        elif defend and name not in DEFENSIVE_ALLOWED_TOOLS:
+            result = f"[Guardrails: инструмент '{name}' запрещён в режиме защиты]"
+            used += 1
         else:
+            tool = NAME_TOOLS.get(name)
             try:
-                result = tool_fn.invoke(tool_args)
-            except Exception as e:
-                result = f"Ошибка при вызове {tool_name}: {e}"
+                result = tool.invoke(args) if tool else f"Инструмент '{name}' не найден."
+            except Exception as exc:
+                result = f"Ошибка при вызове {name}: {exc}"
+            used += 1
+
+        text = str(result)
         if defend:
-            result = replace_tool_output(str(result))
+            text = replace_tool_output(text)
+        tool_messages.append(ToolMessage(content=text, tool_call_id=call_id))
 
-        tool_messages.append(
-            ToolMessage(content=result, tool_call_id=tool_id)
-        )
-
-    return {"messages": tool_messages,
-            "tools_call_count": state.get("tools_call_count", 0) + 1}
+    return {"messages": tool_messages, "tools_call_count": used}
 
 
 def finding_node(state: AgentState) -> dict:
-    # Преобразует результаты инструментов в структурированный Finding
-
-    messages = state["messages"]
-    tool_results = [
-        m.content
-        for m in messages
-        if isinstance(m, ToolMessage)
-    ]
-
-    if not tool_results:
+    results = []
+    for message in reversed(state["messages"]):
+        if not isinstance(message, ToolMessage):
+            break
+        results.append(message.content)
+    if not results:
         return {}
 
-    structured_llm = llm.with_structured_output(Finding)
-
-    prompt = f"""
-    Проанализируй результаты инструментов безопасности: {tool_results}. Сформируй одну находку безопасности.
-    Не придумывай уязвимость, если доказательств недостаточно.
-    В таком случае используй status="requires_verification".
-    """
-
-    finding = structured_llm.invoke(prompt)
-
-    return {
-        "finding": finding.model_dump()
-    }
+    results.reverse()
+    prompt = (
+        f"Проанализируй результаты инструментов:\n{results}\n"
+        "Сформируй отдельный Finding для каждой уязвимости. "
+        "Не выдумывай доказательства. При нехватке доказательств "
+        "используй status='requires_verification'. "
+        "Если находок нет, верни пустой список findings."
+    )
+    parsed = llm.with_structured_output(FindingsResult).invoke(prompt)
+    existing = state.get("findings", [])
+    new = [item.model_dump() for item in parsed.findings]
+    return {"findings": existing + [item for item in new if item not in existing]}
 
 
 def critic_node(state: AgentState) -> dict:
-    """Оценивает финальный отчёт агента."""
     messages = state["messages"]
-    last_ag_message = messages[-1].content
-    task = next(
-        (m.content for m in messages if isinstance(m, HumanMessage)),
-        ""
-    )
+    task = next((m.content for m in messages if isinstance(m, HumanMessage)), "")
+    report = state.get("final_res", "")
     request = [
         SystemMessage(content=CRITIC_PROMPT),
-        HumanMessage(content=f"Задача:\n{task}\n\nОтчёт:\n{last_ag_message}")
+        HumanMessage(content=f"Задача:\n{task}\n\nОтчёт:\n{report}")
     ]
-    response = llm.invoke(request).content
-    y = "SUCCESS" in response.upper()
-    if not y:
-        return {
-            "messages": [
-                HumanMessage(content=(
-                    f"Критик нашёл проблемы в твоём отчёте:\n\n{response}\n\n"
-                    "Перепиши отчёт, исправив замечания."
-                ))
-            ],
-            "revision_count": state.get("revision_count", 0) + 1,
-        }
-    return {"revision_count": state.get("revision_count", 0)}
+    feedback = str(llm.invoke(request).content)
+    verdict = re.search(
+        r"^Verdict:\s*(SUCCESS|NEEDS_IMPROVE)\s*$",
+        feedback, re.MULTILINE | re.IGNORECASE
+    )
+    success = verdict is not None and verdict.group(1).upper() == "SUCCESS"
+    if success:
+        return {}
+    return {
+        "messages": [HumanMessage(content=(
+            f"Критик нашёл проблемы:\n{feedback}\n"
+            "Исправь итоговый отчёт без новых неподтверждённых фактов."
+        ))],
+        "revision_count": state.get("revision_count", 0) + 1,
+    }
 
 
 def should_revise(state: AgentState) -> str:
-    """После критика: либо переписать результат, либо вывести ответ llm."""
     if state.get("revision_count", 0) >= MAX_REVISIONS:
         return "end"
     last = state["messages"][-1]
@@ -236,10 +229,7 @@ def should_revise(state: AgentState) -> str:
 
 
 def should_condition(state: AgentState) -> str:
-    last_message = state["messages"][-1]
-    if getattr(last_message, "tool_calls", None):
-        if state.get("tools_call_count", 0) >= MAX_TOOL_CALLS:
-            return "end"
+    if getattr(state["messages"][-1], "tool_calls", None):
         return "tools"
     return "end"
 
@@ -419,10 +409,14 @@ if __name__ == "__main__":
     result = agent.invoke({
         "messages": [HumanMessage(content=task)],
         "defend_mode": args.defend,
+        "revision_count": 0,
+        "tools_call_count": 0,
+        "final_res": "",
+        "findings": [],
     })
 
     # ============ отчет ============
-    report = result.get("final_res", "Агент не сформировал отчёт.")
+    report = result.get("final_res") or "Агент не сформировал отчёт."
 
     if args.defend:
         report = replace_tool_output(report)
