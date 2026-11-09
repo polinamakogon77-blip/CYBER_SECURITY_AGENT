@@ -12,6 +12,8 @@ from .test_nosqli_lab import test_nosqli_lab
 from .check_arp_table import check_arp_table
 from .run_arp_spoofing import run_arp_spoof
 from .test_dan import test_dan
+from .parser_html import parser_html_forms
+
 
 ALL_TOOLS = [
     check_idor,
@@ -27,9 +29,10 @@ ALL_TOOLS = [
     test_nosqli_lab,
     check_arp_table,
     run_arp_spoof,
-    test_dan
+    test_dan,
+    parser_html_forms
 ]
 
 __all__ = ["ALL_TOOLS", "check_idor", "run_semgrep", "test_sqli_login", "read_file", "read_file_around_line", 
            "run_nuclei", "run_zap_scan", "list_files", "test_sqli_lab", "check_file_inclusion", "test_nosqli_lab", 
-           "check_arp_table", "run_arp_spoof"]
+           "check_arp_table", "run_arp_spoof", "parser_html_forms"]
