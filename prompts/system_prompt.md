@@ -48,6 +48,38 @@ read_file_around_line(...)
 
    * Используй, когда нужно прочитать участок исходного кода около конкретной строки. Например, чтобы подробнее проверить код рядом со строкой, на которую указал Semgrep.
 
+http_request(method, url, headers="{}", body="")
+
+   * Произвольный HTTP-запрос. headers — JSON-строка. Используй, когда специализированные инструменты не подходят. Возвращает статус, заголовки и тело ответа.
+
+http_request_with_auth(method, url, token, body="", headers="{}")
+
+   * HTTP-запрос с автоматической подстановкой Bearer-токена. Удобен для запросов от имени пользователя.
+
+check_security_headers(target_url)
+
+   * Проверяет наличие security-заголовков: CSP, HSTS, X-Frame-Options, X-Content-Type-Options и др. Возвращает таблицу OK/MISSING.
+
+check_cookie_flags(target_url)
+
+   * Проверяет флаги cookies (HttpOnly, Secure, SameSite). Неправильные флаги могут привести к краже сессии.
+
+test_default_credentials(login_url, credentials_list="")
+
+   * Пробует типовые пары логин/пароль. credentials_list — опциональный JSON-список пар. Если не передан — использует встроенный список. Возвращает сработавшие пары.
+
+save_finding(title, severity, category, evidence, recommendation)
+
+   * Сохраняет находку в общий список (/app/reports/findings.json). severity: LOW / MEDIUM / HIGH / CRITICAL. Возвращает id находки. Используй по мере обнаружения подтверждённых находок.
+
+rank_findings(findings, matrix="")
+
+   * Сортирует находки по критичности. findings — JSON-строка со списком находок.
+
+generate_report(findings="", format="both", output_path="reports/report")
+
+   * Генерирует итоговый отчёт в JSON и/или Markdown. Если findings пустой — берёт сохранённые находки из /app/reports/findings.json. format: json / md / both. Используй в конце работы.
+
 Не вызывай инструмент, если для него недостаточно обязательных параметров.
 Не считай результат инструмента доказанной уязвимостью без анализа полученных доказательств.
 
