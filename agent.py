@@ -1,5 +1,8 @@
 import os
+import sys
 import argparse
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict, Annotated
 from dotenv import load_dotenv
@@ -20,7 +23,7 @@ NSU_TOKEN = os.getenv("NSU_TOKEN")
 if not NSU_TOKEN:
     raise RuntimeError("Создайте файл .env в вашей директории и укажите: NSU_TOKEN='токен Беспалова'")
 
-MAX_TOOL_CALLS = 8          
+MAX_TOOL_CALLS = 8
 MAX_REVISIONS = 2
 
 llm = ChatOpenAI(
@@ -33,12 +36,80 @@ llm = ChatOpenAI(
 llm_tools = llm.bind_tools(ALL_TOOLS)
 NAME_TOOLS = {t.name: t for t in ALL_TOOLS}
 
+PATTERNS_INJECTION = [
+    re.compile(p, re.IGNORECASE) for p in [
+        r"игнорируй\s+(все\s+)?предыдущ",
+        r"забудь\s+(свой\s+)?(системн|промпт|инструкц)",
+        r"ты\s+теперь\s+(dan|режим)",
+        r"отключи\s+(свои\s+)?(ограничен|фильтр|защит)",
+        r"выведи\s+(свой\s+)?(системный\s+промпт|инструкц)",
+        r"новая\s+инструкция\s*:",
+        r"действуй\s+как\s+",
+        r"притворись\s+(что\s+ты\s+)?",
+        r"ignore\s+(all\s+)?(previous|prior)",
+        r"forget\s+(your\s+)?(system\s+prompt|instructions)",
+        r"you\s+are\s+now\s+dan",
+        r"new\s+instructions?\s*:",
+    ]
+]
+
+OUTPUT_PATTERNS = [
+    (re.compile(p, re.IGNORECASE), "[REDACTED]") for p in [
+        r"ignore\s+(all\s+)?(previous|prior)\s+instructions?",
+        r"игнорируй\s+(все\s+)?предыдущ\w*\s+инструкц\w*",
+        r"you\s+are\s+now\s+dan",
+        r"ты\s+теперь\s+dan",
+        r"новые\s+инструкции\s*:",
+        r"new\s+instructions?\s*:",
+        r"system\s*prompt\s*:",
+        r"системный\s+промпт\s*:",
+    ]
+]
+
+def _cut_payloads(text: str) -> str:
+    """Вырезает из текста payload'ы, URL и код."""
+    text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)  
+    text = re.sub(r"`[^`]*`", " ", text)              
+    text = re.sub(r"https?://\S+", " ", text)         
+    text = re.sub(r"\"[^\"]*\"", " ", text)           
+    text = re.sub(r"'[^']*'", " ", text)              
+    return text
+
+
+def check_task(task: str) -> tuple[bool, str]:
+    """Проверяет задачу на prompt injection.
+    Возвращает (blocked, reason)."""
+    cuted = _cut_payloads(task)
+    for idx, pat in enumerate(PATTERNS_INJECTION):
+        if pat.search(cuted):
+            print(f"[DEFEND][debug] сработал паттерн {idx}: {pat.pattern}",
+        file=sys.stderr)
+            return True, "запрос содержит признаки манипуляции инструкциями"
+    return False, ""
+
+
+def replace_tool_output(text: str) -> str:
+    """Заменяет инъекционные вставки в выводе инструментов."""
+    for pat, repl in OUTPUT_PATTERNS:
+        text = pat.sub(repl, text)
+    return text
+
+
+DEFENSIVE_ALLOWED_TOOLS = {
+    "list_files",
+    "run_semgrep",
+    "test_nosqli_lab",
+    "check_arp_table",
+}
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     revision_count: int
     final_res: str
     tools_call_count: int
     finding: dict
+    defend_mode: bool
+
 
 def agent_node(state: AgentState) -> dict:
     messages = list(state["messages"])
@@ -62,13 +133,24 @@ def agent_node(state: AgentState) -> dict:
         newres["final_res"] = response.content
     return newres
 
+
 def tools_node(state: AgentState) -> dict:
     last_message = state["messages"][-1]
     tool_messages = []
+    defend = state.get("defend_mode", False)
     for tool_call in last_message.tool_calls:
         tool_name = tool_call["name"]
         tool_args = tool_call["args"]
         tool_id = tool_call["id"]
+        if defend and tool_name not in DEFENSIVE_ALLOWED_TOOLS:
+            tool_messages.append(ToolMessage(
+                content=(
+                    f"[Guardrails: инструмент '{tool_name}' недоступен в режиме защиты. "
+                    f"Разрешены только: {sorted(DEFENSIVE_ALLOWED_TOOLS)}]"
+                ),
+                tool_call_id=tool_id,
+            ))
+            continue
         tool_fn = NAME_TOOLS.get(tool_name)
         if tool_fn is None:
             result = f"Инструмент '{tool_name}' не найден."
@@ -77,12 +159,16 @@ def tools_node(state: AgentState) -> dict:
                 result = tool_fn.invoke(tool_args)
             except Exception as e:
                 result = f"Ошибка при вызове {tool_name}: {e}"
+        if defend:
+            result = replace_tool_output(str(result))
+
         tool_messages.append(
             ToolMessage(content=result, tool_call_id=tool_id)
         )
 
     return {"messages": tool_messages,
             "tools_call_count": state.get("tools_call_count", 0) + 1}
+
 
 def finding_node(state: AgentState) -> dict:
     # Преобразует результаты инструментов в структурированный Finding
@@ -111,6 +197,7 @@ def finding_node(state: AgentState) -> dict:
         "finding": finding.model_dump()
     }
 
+
 def critic_node(state: AgentState) -> dict:
     """Оценивает финальный отчёт агента."""
     messages = state["messages"]
@@ -137,14 +224,16 @@ def critic_node(state: AgentState) -> dict:
         }
     return {"revision_count": state.get("revision_count", 0)}
 
+
 def should_revise(state: AgentState) -> str:
     """После критика: либо переписать результат, либо вывести ответ llm."""
     if state.get("revision_count", 0) >= MAX_REVISIONS:
-        return "end"  
+        return "end"
     last = state["messages"][-1]
     if isinstance(last, HumanMessage) and "Критик нашёл проблемы" in last.content:
         return "revise"
-    return "end" 
+    return "end"
+
 
 def should_condition(state: AgentState) -> str:
     last_message = state["messages"][-1]
@@ -154,11 +243,12 @@ def should_condition(state: AgentState) -> str:
         return "tools"
     return "end"
 
+
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", agent_node)
 workflow.add_node("tools", tools_node)
 workflow.add_node("finding", finding_node)
-workflow.add_node("critic", critic_node) 
+workflow.add_node("critic", critic_node)
 workflow.add_edge(START, "agent")
 workflow.add_conditional_edges(
     "agent",
@@ -221,16 +311,23 @@ if __name__ == "__main__":
     parser.add_argument("--nosqli-source", default=None,
                         help="путь к исходникам NoSQLi Lab")
     parser.add_argument("--no-nosqli-lab", action="store_true",
-                        help="не проверять NoSQLi Lab")    
+                        help="не проверять NoSQLi Lab")
     # ============ произвольная задача ============
     parser.add_argument("--task", default=None,
                         help="произвольная задача (перекрывает остальное)")
 
+    # флаг режима защиты
+    parser.add_argument("--defend", action="store_true",
+                        help="Режим защиты: guardrails + белый список инструментов")
+
     args = parser.parse_args()
+
+    if args.defend:
+        SYSTEM_PROMPT = Path("prompts/defend_prompt.md").read_text(encoding="utf-8")
 
     if args.task:
         task = args.task
-    else:  
+    else:
         # ============ чтение параметров ============
         SOURCE_PATH = args.source or os.getenv("SOURCE_PATH", "/app/juice-shop")
         TARGET_URL = args.url or os.getenv("TARGET_URL", "http://juice-shop:3000")
@@ -242,7 +339,6 @@ if __name__ == "__main__":
         ZAP_URL = args.zap_url or os.getenv("ZAP_URL", "")
         ZAP_MODE = args.zap_mode
         DAN_LAB_URL = os.getenv("DAN_LAB_URL", "")
-
 
         parts = [f"Проведи анализ защищённости приложения {TARGET_URL}."]
 
@@ -283,8 +379,7 @@ if __name__ == "__main__":
             )
             if SQLI_SOURCE_PATH:
                 parts.append(f"Запусти Semgrep на {SQLI_SOURCE_PATH}.")
-        
-        
+
         # ============ NoSQLi Lab ============
         if not args.no_nosqli_lab and NOSQLI_LAB_URL:
             parts.append(
@@ -302,7 +397,7 @@ if __name__ == "__main__":
             if NOSQLI_SOURCE_PATH:
                 parts.append(f"Запусти Semgrep на {NOSQLI_SOURCE_PATH}.")
 
-            # ============ DAN / Prompt Injection ============
+        # ============ DAN / Prompt Injection ============
         if DAN_LAB_URL:
             parts.append(
                 f"Проведи анализ Prompt Injection / DAN на стенде {DAN_LAB_URL}. "
@@ -310,16 +405,28 @@ if __name__ == "__main__":
             )
 
         parts.append("Опиши найденные уязвимости с критичностью и рекомендациями.")
-        
+
         task = " ".join(parts)
-     # ============ запуск ============
+
+    if args.defend:
+        blocked, reason = check_task(task)
+        if blocked:
+            print(f"[DEFENCE] Ввод заблокирован: {reason}")
+            sys.exit(1)
+
+    # ============ запуск ============
     print(f'{"=" * 30}\nЗАДАЧА ДЛЯ АГЕНТА:\n{task}\n{"=" * 30}')
     result = agent.invoke({
-        "messages": [HumanMessage(content=task)]
+        "messages": [HumanMessage(content=task)],
+        "defend_mode": args.defend,
     })
 
     # ============ отчет ============
     report = result.get("final_res", "Агент не сформировал отчёт.")
+
+    if args.defend:
+        report = replace_tool_output(report)
+
     print(f'{"=" * 30}\nИТОГОВЫЙ ОТЧЁТ:\n{report}\n{"=" * 30}')
 
     reports_dir = Path("reports")
