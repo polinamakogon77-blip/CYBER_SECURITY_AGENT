@@ -47,6 +47,11 @@
 **Динамический анализ (DAST) — XSS и бизнес-логика**
 - `test_forged_review_xss(base_url, endpoint, product_id="1", author_field="author", message_field="message", forged_author="admin@juice-sh.op", xss_payload="<iframe...>", auth_email="", auth_password="")` — проверяет **две вещи** на эндпоинте отзывов: (1) подделку автора (сервер берёт `author` из тела, а не из сессии) и (2) stored XSS (payload сохраняется и возвращается без экранирования). Работает на любом приложении с эндпоинтом отзывов. Для Juice Shop: `endpoint="/rest/products/{id}/reviews"`, `product_id="1"`. Для другого приложения: передай его `endpoint`, `author_field`, `message_field`, `forged_author`, `xss_payload`.
 - `test_negative_quantity(base_url, add_endpoint, update_endpoint, item_id_field="id", product_id_field="ProductId", basket_id_field="BasketId", quantity_field="quantity", product_id="1", negative_value=-100, auth_email="", auth_password="")` — проверяет бизнес-логику: принимает ли сервер отрицательное `quantity`.
+- `test_xss_reflected(target_url, param, payload="<script>alert(1)</script>", method="GET", extra_params="")` — проверяет server-side reflected XSS: отправляет payload в параметре и смотрит, отражается ли он в теле HTTP-ответа без экранирования.
+  Возвращает: `reflected` (bool), `context` (фрагмент вокруг отражения), `escaped` (bool), `verdict`.
+  HTTP 200 и `reflected=False` сами по себе не доказывают отсутствие уязвимости. 
+  Для SPA/DOM-based XSS нужен headless-браузер; если его нет — статус `requires_verification`, а не «ОК».
+
 
 **Динамический анализ (DAST) — утечки и конфигурация**
 - `test_ftp_directory_listing(base_url)` — проверяет открытый листинг `/ftp/` и доступ к `acquisitions.md`.

@@ -60,7 +60,8 @@ ALL_TOOLS = [
     test_negative_quantity,
     test_forged_review_xss,
     test_security_txt, 
-    test_ffuf
+    test_ffuf,
+    test_xss_reflected
 ]
 
 __all__ = ["ALL_TOOLS", "check_idor", "run_semgrep", "test_sqli_login", "read_file", "read_file_around_line", 
@@ -68,4 +69,4 @@ __all__ = ["ALL_TOOLS", "check_idor", "run_semgrep", "test_sqli_login", "read_fi
            "check_arp_table", "run_arp_spoof", "test_dan", "parser_html_forms", "http_request", "save_finding", "generate_report", "check_security_headers",
             "check_cookie_flags", "test_default_credentials", "rank_findings", "http_request_with_auth", "test_xss_reflected", "test_xxe_upload", 
             "test_admin_api_unprotected", "test_ftp_directory_listing", "test_negative_quantity", "test_forged_review_xss", "test_security_txt", 
-            "test_ffuf"]
+            "test_ffuf", "test_xss_reflected"]
