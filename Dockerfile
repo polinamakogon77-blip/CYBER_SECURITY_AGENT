@@ -42,7 +42,21 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm /tmp/nuclei.zip && \
     chmod +x /usr/local/bin/nuclei && \
     nuclei -version
-    
+
+# ======== ffuf (fuzzing) ========
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+      amd64) FFUF_ARCH="linux_amd64" ;; \
+      arm64) FFUF_ARCH="linux_arm64" ;; \
+      *) FFUF_ARCH="linux_amd64" ;; \
+    esac && \
+    FFUF_VER="2.1.0" && \
+    curl -sSL "https://github.com/ffuf/ffuf/releases/download/v${FFUF_VER}/ffuf_${FFUF_VER}_${FFUF_ARCH}.tar.gz" -o /tmp/ffuf.tar.gz && \
+    tar -xzf /tmp/ffuf.tar.gz -C /usr/local/bin && \
+    rm /tmp/ffuf.tar.gz && \
+    chmod +x /usr/local/bin/ffuf && \
+    ffuf -V
+
 # ======== Python-зависимости ========
 COPY requirements.txt .
 RUN pip install --no-cache-dir uv
@@ -58,6 +72,12 @@ COPY schemas/ ./schemas/
 
 # ======== папка с отчетами ========
 RUN mkdir -p /app/reports
+
+# ======== папка со стандартными путями ========
+RUN mkdir -p /app/tools/wordlists && \
+    curl -sSL "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-directories.txt" \
+    -o /app/tools/wordlists/hidden_paths.txt && \
+    test -s /app/tools/wordlists/hidden_paths.txt
 
 # ======== настройка окружения ========
 ENV PYTHONUNBUFFERED=1

@@ -31,6 +31,9 @@
   `confirmed` — только если файл найден **и** содержит оба поля. 
   Если файл не найден или неполный — `requires_verification`. 
   Используй для проверки Security Misconfiguration (White Hat / security.txt).
+- `test_ffuf(base_url, wordlist="", extensions="", threads=10)` — перебирает скрытые пути через **ffuf** (generic). 
+  Если `wordlist` пуст — использует встроенный словарь. Запускает `ffuf -ac` (авто-калибровка против SPA-заглушек). 
+  `confirmed` — если ffuf нашёл путь, отличающийся от baseline (с учётом `-ac`). 
 
 **Динамический анализ (DAST) — инъекции**
 - `test_sqli_lab(base_url: str, endpoint: str = "/rest/user/login", email_payload: str = "' OR 1=1--", password_payload: str = "1234567890")` — generic-проверка SQLi на стенде или реальном приложении. Принимает произвольный payload. 

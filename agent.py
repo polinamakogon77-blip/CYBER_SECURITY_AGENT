@@ -122,8 +122,11 @@ def agent_node(state: AgentState) -> dict:
     findings = state.get("findings", [])
     if findings:
         messages.append(HumanMessage(content=(
-            "Накопленные структурированные находки:\n"
-            f"{findings}\nНе придумывай новые доказательства."
+           "Накопленные структурированные находки:\n"
+            f"{findings}\n"
+            "ОБЯЗАТЕЛЬНО включи в итоговый отчёт КАЖДУЮ находку из списка, "
+            "включая LOW/informational (например, security.txt). "
+            "Не придумывай новые доказательства и не удаляй находки."
         )))
 
     used = state.get("tools_call_count", 0)
