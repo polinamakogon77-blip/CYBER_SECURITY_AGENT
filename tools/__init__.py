@@ -23,7 +23,10 @@ from .rank_findings import rank_findings
 from .http_request_with_auth import http_request_with_auth
 from .test_xss_reflected import test_xss_reflected
 from .test_xxe_upload import test_xxe_upload
-
+from .test_admin_api_unprotected import test_admin_api_unprotected
+from .test_ftp_directory_listing import test_ftp_directory_listing
+from .test_negative_quantity import test_negative_quantity
+from .test_forged_review_xss import test_forged_review_xss
 
 
 ALL_TOOLS = [
@@ -50,11 +53,14 @@ ALL_TOOLS = [
     test_default_credentials,
     rank_findings,
     http_request_with_auth,
-    test_xss_reflected,
-    test_xxe_upload
+    test_admin_api_unprotected,
+    test_ftp_directory_listing,
+    test_negative_quantity,
+    test_forged_review_xss
 ]
 
 __all__ = ["ALL_TOOLS", "check_idor", "run_semgrep", "test_sqli_login", "read_file", "read_file_around_line", 
            "run_nuclei", "run_zap_scan", "list_files", "test_sqli_lab", "check_file_inclusion", "test_nosqli_lab", 
            "check_arp_table", "run_arp_spoof", "test_dan", "parser_html_forms", "http_request", "save_finding", "generate_report", "check_security_headers",
-            "check_cookie_flags", "test_default_credentials", "rank_findings", "http_request_with_auth", "test_xss_reflected", "test_xxe_upload"]
+            "check_cookie_flags", "test_default_credentials", "rank_findings", "http_request_with_auth", "test_xss_reflected", "test_xxe_upload", 
+            "test_admin_api_unprotected", "test_ftp_directory_listing", "test_negative_quantity", "test_forged_review_xss"]
