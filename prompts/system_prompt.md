@@ -25,6 +25,12 @@
 - `test_default_credentials(login_url, credentials_list="")` — пробует типовые пары логин/пароль.
 - `run_zap_scan(target_url, scan_mode, auth_token="")` — OWASP ZAP. `scan_mode`: `baseline` (пассивный, безопасный), `full` (активные атаки — только для локальных стендов), `api` (по OpenAPI). Используй для поиска заголовков, CORS, утечек.
 - `run_nuclei(target_url, templates="")` — сигнатурный сканер. Ищет известные CVE, открытые конфиги, утечки. Для Juice Shop даёт мало (нет CVE в базе) — не полагайся на него как на основной инструмент.
+- `test_security_txt(base_url)` — проверяет наличие `security.txt` по стандартным путям. 
+  Логика: сначала `/.well-known/security.txt`, если не найден — fallback `/security.txt`. 
+  Если файл найден — проверяет обязательные поля `Contact:` и `Expires:`. 
+  `confirmed` — только если файл найден **и** содержит оба поля. 
+  Если файл не найден или неполный — `requires_verification`. 
+  Используй для проверки Security Misconfiguration (White Hat / security.txt).
 
 **Динамический анализ (DAST) — инъекции**
 - `test_sqli_lab(base_url: str, endpoint: str = "/rest/user/login", email_payload: str = "' OR 1=1--", password_payload: str = "1234567890")` — generic-проверка SQLi на стенде или реальном приложении. Принимает произвольный payload. 
