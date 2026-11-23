@@ -30,7 +30,7 @@ services:
       start_period: 60s
   # ========= тренировочный стенд для SQLi =========
   sqli-lab-backend:
-    build: laboratorys/sqli
+    build: ./laboratorys/sqli
     container_name: sqli-lab-backend
     ports:
       - "5000:5000"
@@ -57,7 +57,7 @@ services:
 
   # ========= тренировочный стенд для NoSQLi =========
   nosqli-lab-backend:
-    build: laboratorys/nosqli
+    build: ./laboratorys/nosqli
     container_name: nosqli-lab-backend
     depends_on:
       nosqli-mongo:
@@ -198,7 +198,7 @@ services:
 
 # DAN
   dan-llm:
-    build: dan_llm
+    build: ./dan_llm
     container_name: dan-llm
     ports:
       - "5001:5001"

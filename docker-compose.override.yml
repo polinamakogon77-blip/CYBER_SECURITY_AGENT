@@ -3,10 +3,10 @@ services:
     build: ./plugins/webauthn_plugin/webauthn_lab
     container_name: webauthn-lab
     ports:
-      - "5001:5001"
+      - "5003:5001"
     environment:
       - RP_ID=localhost
-      - ORIGIN=http://localhost:5001
+      - ORIGIN=http://localhost:5003
     restart: unless-stopped
 
   agent:
