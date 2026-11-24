@@ -37,10 +37,12 @@ MAX_REVISIONS = 2
 
 
 llm = ChatOpenAI(
-    model="qwen3.8-flash-next",
+    model="Qwen3.8-27B",
     api_key=NSU_TOKEN,
     base_url="https://deepcode.ci.nsu.ru/api",
     temperature=0,
+    timeout=120,
+    max_retries=0,
 )
 
 llm_tools = llm.bind_tools(ALL_TOOLS)
@@ -166,7 +168,11 @@ def agent_node(state: AgentState) -> dict:
             "Лимит инструментов исчерпан. Не вызывай инструменты. "
             "Сформируй окончательный отчёт по имеющимся данным."
         )))
-        response = llm.invoke(messages)
+        print("[AGENT] Отправляю запрос модели VEGA...", flush=True)
+
+        response = llm_tools.invoke(messages)
+
+        print("[AGENT] Ответ модели получен", flush=True)
     else:
         response = llm_tools.invoke(messages)
 
