@@ -1,5 +1,4 @@
 services:
-  # ========= сервис, который скачивает исходники =========
   juice-shop-source:
     image: alpine:latest
     container_name: juice-shop-source
@@ -9,26 +8,26 @@ services:
     command: >
       sh -c "
         apk add --no-cache git &&
-        if [ ! -f package.json ]; then
-          git clone --depth 1 https://github.com/juice-shop/juice-shop.git . ;
+        if [ ! -d .git ]; then
+          rm -rf * && git clone --depth 1 https://github.com/juice-shop/juice-shop.git . ;
         else
           echo 'juice-shop уже установлен';
         fi
-        "
+      "
+
   juice-shop:
-    image: bkimminich/juice-shop:latest # готовый образ
+    image: bkimminich/juice-shop:latest
     container_name: juice-shop
     ports: 
       - "3000:3000"
     restart: unless-stopped
-    # ========= проверка, что сервис отвечает =========
     healthcheck:
-      test: ["CMD", "/nodejs/bin/node", "-e", "require('http').get('http://localhost:3000/rest/admin/application-version',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/rest/admin/application-version"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 60s
-  # ========= тренировочный стенд для SQLi =========
+
   sqli-lab-backend:
     build: ./laboratorys/sqli
     container_name: sqli-lab-backend
@@ -41,7 +40,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-  # ========= MongoDB для NoSQLi-стенда =========
+
   nosqli-mongo:
     image: mongo:7.0
     container_name: nosqli-mongo
@@ -55,7 +54,6 @@ services:
       retries: 5
       start_period: 10s
 
-  # ========= тренировочный стенд для NoSQLi =========
   nosqli-lab-backend:
     build: ./laboratorys/nosqli
     container_name: nosqli-lab-backend
@@ -73,7 +71,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-  # ========= отдельный профиль LFI/RFI =========
+
   fi-lab:
     profiles: [file-inclusion]
     build:
@@ -87,11 +85,12 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5101/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5101/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
     networks: [file-inclusion-lab]
+
   fi-remote:
     profiles: [file-inclusion]
     build:
@@ -106,12 +105,12 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5102/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5102/health')"]
       interval: 5s
       timeout: 3s
       retries: 10
     networks: [file-inclusion-lab]
-  # ========= тренировочный стенд для SSRF =========
+
   admin-app:
     build:
       context: ./target
@@ -125,6 +124,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
   ssrf-flask:
     build:
       context: ./target
@@ -139,6 +139,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
   streamlit-app:
     build:
       context: ./target
@@ -150,6 +151,7 @@ services:
       admin-app:
         condition: service_healthy
     restart: unless-stopped
+
   agent:
     build:
       context: .
@@ -167,7 +169,6 @@ services:
         condition: service_healthy
       nosqli-lab-backend:
         condition: service_healthy
-    # ========= переменные окружения =========
     environment:
       - TARGET_URL=http://juice-shop:3000
       - SOURCE_PATH=/app/juice-shop
@@ -178,11 +179,11 @@ services:
       - NOSQLI_SOURCE_PATH=/app/nosqli-lab
       - DAN_LAB_URL=http://dan-llm:5001
       - COMPOSE_NETWORK=cyber_security_agent_default
-      - HOST_REPORTS_DIR=${PWD}/reports
+      - HOST_REPORTS_DIR=/app/reports
     env_file:
-      - .env #болле универсально: естли есть langsmith
+      - .env
     volumes:
-      - ./reports:/app/reports # папка отчетов
+      - ./reports:/app/reports
       - ./juice-shop:/app/juice-shop:ro
       - ./target:/app/target:ro  
       - ./laboratorys/sqli:/app/sqli-lab:ro
@@ -191,12 +192,11 @@ services:
     working_dir: /app
     networks: [default, file-inclusion-lab]
     command: >
-      python -u agent.py
+      python -u -m cyber_agent.agent.cli.main
       --url http://juice-shop:3000
       --source /app/juice-shop
       --rules /app/rules/rules_semgrep.yaml
 
-# DAN
   dan-llm:
     build: ./dan_llm
     container_name: dan-llm
@@ -205,15 +205,8 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"
-        ]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -223,5 +216,6 @@ networks:
   default: {}
   file-inclusion-lab:
     internal: true
+
 volumes:
   nosqli-mongo-data:

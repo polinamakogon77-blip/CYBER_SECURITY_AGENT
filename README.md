@@ -27,14 +27,14 @@ docker compose up juice-shop
 ### Запуск агента со своей задачей без зависимостей
 ```bash
 docker compose run --rm --no-deps agent \
-  python -u agent.py \
+  python -u cyber_agent.agent.cli.main \
   --task "Проверь /app/target на SSRF."
 ```
 
 ### Только статический анализ
 ```bash
 docker compose run --rm --no-deps agent \
-  python -u agent.py \
+  python -u cyber_agent.agent.cli.main \
   --task "Проверь /app/target. С помощью list_files прочитай список файлов, запусти Semgrep с p/python."
 ```
 
