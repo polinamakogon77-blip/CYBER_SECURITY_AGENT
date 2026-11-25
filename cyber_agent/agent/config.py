@@ -12,7 +12,6 @@ if not NSU_TOKEN:
         "NSU_TOKEN='ваш_токен'"
     )
 
-MAX_TOOL_CALLS = 30
 MAX_REVISIONS = 2
 
 llm = ChatOpenAI(

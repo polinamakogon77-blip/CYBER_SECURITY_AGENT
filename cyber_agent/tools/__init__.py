@@ -22,7 +22,7 @@ from .rank_findings import rank_findings
 from .http_request_with_auth import http_request_with_auth
 from .test_xss_reflected import test_xss_reflected
 from .test_xxe_upload import test_xxe_upload
-
+from .rag_tool import rag_tool
 # Инструменты, уже существующие локально
 from .test_admin_api_unprotected import test_admin_api_unprotected
 from .test_ftp_directory_listing import test_ftp_directory_listing
@@ -42,6 +42,7 @@ ALL_TOOLS = [
     read_file_around_line,
     run_nuclei,
     run_zap_scan,
+    rag_tool,
     list_files,
     test_sqli_lab,
     check_file_inclusion,

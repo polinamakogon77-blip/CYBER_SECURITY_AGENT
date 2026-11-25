@@ -77,9 +77,8 @@ RUN set -eu; \
 
 # Python-зависимости
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout 120 --retries 10 uv && \
-    uv pip install --system -r requirements.txt && \
-    uv pip install --system semgrep
+RUN pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install semgrep -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Копирование кода агента
 COPY cyber_agent/ ./cyber_agent/

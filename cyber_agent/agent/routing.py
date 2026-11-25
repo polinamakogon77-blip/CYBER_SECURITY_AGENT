@@ -17,3 +17,16 @@ def should_condition(state) -> str:
     if isinstance(last_message, AIMessage) and getattr(last_message, "tool_calls", None):
         return "tools"
     return "end"
+
+def route_after_tools(state) -> str:
+    """
+    Проверяет, был ли только что вызван generate_report. 
+    Если да — немедленно завершает работу графа.
+    """
+    messages = state["messages"]
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+            if any(tc["name"] == "generate_report" for tc in msg.tool_calls):
+                return "end" 
+            break 
+    return "finding"
