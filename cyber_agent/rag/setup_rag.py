@@ -15,10 +15,6 @@ def main():
         print(f" Папка {kb_path} пуста или не существует.")
         print("Добавьте .md или .txt файлы в эту папку и запустите скрипт снова.")
         sys.exit(1)
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Ошибка: Переменная окружения OPENAI_API_KEY не найдена")
-        sys.exit(1)
-
     print(f"Загрузка документов из: {kb_path}")
     loader = DirectoryLoader(
         kb_path, 
